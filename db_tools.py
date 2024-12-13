@@ -98,12 +98,17 @@ class DBTools:
     CHECK_USER_EXISTS_QUERY: str = (
         f'SELECT user_id FROM {USERS_TABLE_NAME} WHERE user_id = ?'
     )
+    CHECK_USER_REGISTERED_IN_CHAT_QUERY = (
+        f'SELECT user_id FROM {USER_CHATS_TABLE_NAME} WHERE user_id = ? '
+        f'AND chat_id = ?'
+    )
     BAN_USER_QUERY = (
         f'UPDATE {USERS_TABLE_NAME} SET state = \'{UserStates.BANNED.value}\' '
         'WHERE user_id = ?'
     )
     CHECK_USER_ALREADY_REGISTERED_BIRTHDAY_QUERY = (
-        f'SELECT day, month FROM {BIRTHDAYS_TABLE_NAME} WHERE user_id = ?'
+        f'SELECT day, month FROM {BIRTHDAYS_TABLE_NAME} WHERE user_id = ? '
+        f'and chat_id = ?'
     )
     UPDATE_USER_BIRTHDAY_QUERY = (
         f'UPDATE {BIRTHDAYS_TABLE_NAME} SET day = ?, month = ? '
@@ -133,7 +138,8 @@ class DBTools:
         f'LEFT JOIN {BIRTHDAYS_TABLE_NAME} birthdays\n'
         f'ON users.user_id = birthdays.user_id\n'
         f'WHERE users.state != \'{UserStates.BANNED.value}\'\n'
-        'and birthdays.day = ? AND birthdays.month = ?'
+        'and birthdays.day = ? AND birthdays.month = ? '
+        'and birthdays.chat_id = ?'
     )
     GET_USER_CONGRATULATION_QUERY = (
         f'SELECT congratulation FROM {CONGRATULATIONS_TABLE_NAME} '
@@ -299,6 +305,23 @@ class DBTools:
 
         return user is not None
 
+    def user_registered_in_chat(self, user_id: int, chat_id: int) -> bool:
+        """
+        Checks if a user is registered in a specific chat.
+
+        Args:
+            user_id (int): The ID of the user.
+            chat_id (int): Telegram chat ID.
+    
+        Returns:
+            bool: True if the user is registered in the chat, False otherwise.
+        """
+        user = self.fetch_one(
+            self.CHECK_USER_REGISTERED_IN_CHAT_QUERY, (user_id, chat_id)
+        )
+
+        return user is not None
+
     def add_user(self, user_id: int, user_name: str) -> None:
         """
         Adds a user to the users table.
@@ -323,19 +346,20 @@ class DBTools:
             self.ADD_USER_CHAT_QUERY, (user_id, chat_id)
         )
 
-    def check_if_user_already_registered_birthday(self, user_id: int) -> [None, str]:
+    def check_if_user_already_registered_birthday(self, user_id: int, chat_id: int) -> [None, str]:
         """
         Checks if a user has already registered a birthday in the database.
 
         Args:
             user_id (int): The ID of the user.
+            chat_id (int): The ID of the chat.
 
         Returns:
             bool: True if the user has already registered a birthday, False otherwise.
         """
         self.logger.debug('Checking if user already registered birthday')
         result = self.fetch_one(
-            self.CHECK_USER_ALREADY_REGISTERED_BIRTHDAY_QUERY, (user_id, )
+            self.CHECK_USER_ALREADY_REGISTERED_BIRTHDAY_QUERY, (user_id, chat_id)
         )
         return result is not None
 
@@ -351,7 +375,8 @@ class DBTools:
             day: day of birth
             month: month of birth
         """
-        if not self.check_if_user_already_registered_birthday(user_id):
+        if not self.check_if_user_already_registered_birthday(user_id, chat_id):
+            self.logger.debug('User does not have birthday, adding it')
             self.logger.debug('User have no birthday, adding it')
             self.execute_query(
                 self.ADD_USER_BIRTHDAY_QUERY,
@@ -398,8 +423,22 @@ class DBTools:
         return result is not None
 
     def add_congratulation(self, user_id: int, chat_id: int, congratulation: str) -> None:
-        # TODO: add docstring
-        # TODO: extra check if id`s not int?
+        """
+        Adds or updates a congratulation message for a user in a specific chat.
+    
+        Args:
+            user_id (int): The ID of the user.
+            chat_id (int): Telegram chat ID.
+            congratulation (str): The congratulation message to be stored.
+    
+        Raises:
+            ValueError: If `user_id` or `chat_id` is not an integer.
+        """
+        if not isinstance(user_id, int):
+            raise ValueError("user_id must be an integer.")
+        if not isinstance(chat_id, int):
+            raise ValueError("chat_id must be an integer.")
+    
         self.logger.debug('Adding congratulation')
         self.logger.debug(
             f'user_id: {user_id}, chat_id: {chat_id}, congratulation: {congratulation}'
@@ -423,19 +462,25 @@ class DBTools:
             user_id (int): The ID of the user.
             chat_id (int): Telegram chat id.
         """
-        # TODO: delete from birthday_bot_congratulations too
+        # TODO: ?delete from birthday_bot_congratulations too?
+        # TODO: ?delete from birthday_bot_user_chats too?
+        # TODO: delete from all tables? (birthday_bot_birthdays,
+        #  birthday_bot_user_chats, birthday_bot_congratulations, birthday_bot_users)
         self.logger.debug(f'Deleting birthday for user_id: {user_id} in chat_id: {chat_id}')
         self.execute_query(
             self.DELETE_USER_BIRTHDAY_QUERY, (user_id, chat_id)
         )
         
-    def get_users_with_birthday(self, day: int, month: int) -> Union[List[Tuple], None]:
+    def get_users_with_birthday(
+        self, day: int, month: int, chat_id: int
+    ) -> Union[List[Tuple], None]:
         """
         Retrieves users who have a birthday on the specified day and month.
 
         Args:
             day (int): The day of the birthday.
             month (int): The month of the birthday.
+            chat_id (int): id of chat.
 
         Returns:
             List[Tuple]: A list of tuples, where each tuple contains
@@ -443,7 +488,9 @@ class DBTools:
             with a birthday on the specified day and month.
         """
         self.logger.debug(f'Fetching users with birthdays on day: {day}, month: {month}')
-        result = self.fetch_all(self.GET_USERS_WITH_BIRTHDAY_QUERY, (day, month))
+        result = self.fetch_all(
+            self.GET_USERS_WITH_BIRTHDAY_QUERY, (day, month, chat_id)
+        )
 
         return result
 
