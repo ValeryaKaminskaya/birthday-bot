@@ -84,7 +84,9 @@ class BirthdayBot:
         self.router.message.register(
             self.congrat_today_command_handler, Command(commands="congrat_today")
         )
-        # TODO: /greet (congrat_text) — для получения текущего поздравительного сообщения.
+        self.router.message.register(
+            self.congrat_text_command_handler, Command(commands="congrat_text")
+        )
         # TODO: start_congrats
         # TODO: stop_congrats
 
@@ -347,6 +349,32 @@ class BirthdayBot:
         self.db_tools.delete_user_birthday(target_user_id, message.chat.id)
 
         await message.answer(f'Birthday was deleted for user: {target_user_id}')
+
+    async def congrat_text_command_handler(self, message: Message):
+        # TODO: add docstring
+        self.logger.debug('Running /congrat_text command')
+
+        split_message_text = message.text.split()
+
+        if (
+                len(split_message_text) > 1
+                and await self.is_admin_or_bot_owner(message.from_user.id, message.chat.id)
+                and self.check_is_user_id_valid(split_message_text[1])
+        ):
+            target_user_id = int(split_message_text[1])
+        else:
+            target_user_id = message.from_user.id
+
+        congratulation_text = self.db_tools.get_user_congratulation(
+            target_user_id, message.chat.id
+        )
+
+        if not congratulation_text:
+            congratulation_text = self.default_congratulation
+
+        await message.answer(
+            f'The congratulation for user {target_user_id} is: "{congratulation_text}"'
+        )
 
     async def congrat_today_command_handler(self, message: Message):
         # TODO: add docstring
